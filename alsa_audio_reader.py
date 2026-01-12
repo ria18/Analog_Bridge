@@ -157,9 +157,11 @@ class AlsaAudioReader:
                 self.frames_read += 1
                 self.bytes_read += len(audio_bytes)
             except:
-                # Queue full - drop packet (prevent buffer overflow)
+                # Queue full - drop packet silently (prevent buffer overflow and log spam)
                 self.overflows += 1
-                logger.warning("Audio queue full, dropping packet")
+                # Only log warning every 100 overflows to reduce log spam
+                if self.overflows % 100 == 0:
+                    logger.debug(f"Audio queue full, dropped {self.overflows} packets")
                 
         except Exception as e:
             logger.error(f"Error in audio callback: {e}", exc_info=True)

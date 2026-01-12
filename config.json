@@ -94,7 +94,7 @@
     
     "system": {
         "thread_pool_size": 4,
-        "queue_size": 100,
+        "queue_size": 50,
         "timeout_seconds": 5,
         "enable_metrics": true,
         "metrics_port": 9090

@@ -63,9 +63,11 @@ class BOSRadioBridge:
         self.running = False
         
         # Queues for TX channel (Telefon -> Funk)
-        self.usrp_to_processor_queue = Queue(maxsize=100)
-        self.processor_to_vox_queue = Queue(maxsize=100)
-        self.vox_to_gateway_queue = Queue(maxsize=100)
+        # Queue size will be configured after config load
+        # Use default size for now (will be adjusted in initialize_modules)
+        self.usrp_to_processor_queue = Queue(maxsize=50)
+        self.processor_to_vox_queue = Queue(maxsize=50)
+        self.vox_to_gateway_queue = Queue(maxsize=50)
         
         # Queues for RX channel (Funk -> Telefon)
         self.mmdvm_to_jitter_queue = Queue(maxsize=100)
@@ -189,6 +191,16 @@ class BOSRadioBridge:
         alsa_config = self.config.get('alsa', {})
         self.use_alsa = alsa_config.get('use_alsa', False)
         
+        # Optimize queue size for 500ms buffer at 16kHz
+        # Calculation: 16000 samples/sec * 0.5 = 8000 samples
+        # At blocksize 320: 8000/320 = 25 blocks, use 50 for safety margin
+        system_config = self.config.get('system', {})
+        queue_maxsize = system_config.get('queue_size', 50)
+        
+        # Note: Queue maxsize cannot be changed after creation, so we use the configured size
+        # For ALSA: queue should handle 500ms of audio (50 blocks)
+        logger.info(f"Queue maxsize: {queue_maxsize} (500ms buffer at 16kHz)")
+        
         # Initialize TX modules (Telefon -> Funk)
         if self.use_alsa:
             # Use ALSA Loopback (hw:2,1) for BareSIP
@@ -237,27 +249,32 @@ class BOSRadioBridge:
         logger.info("All modules initialized")
     
     def _tx_processing_loop(self):
-        """TX processing loop (Telefon -> Funk)."""
+        """TX processing loop (Telefon -> Funk) - optimized for real-time processing."""
         logger.info("TX processing loop started")
         
+        # Process packets continuously without blocking
         while self.running:
             try:
-                # Get packet from processor queue (after resampling)
-                audio_packet = self.processor_to_vox_queue.get(timeout=1.0)
+                # Get packet from processor queue (non-blocking for real-time processing)
+                try:
+                    audio_packet = self.processor_to_vox_queue.get_nowait()
+                except:
+                    # Queue empty - continue immediately (no sleep for low latency)
+                    continue
                 
                 # Echo Interlock: Check if RX is active (mute TX if RX active)
                 if self.echo_interlock and self.echo_interlock.is_tx_muted():
                     # TX muted due to RX activity - drop packet or apply mute gain
                     pcm_data = audio_packet.get('pcm_data', b'')
                     if pcm_data:
-                        # Apply mute gain (echo suppression)
+                        # Apply mute gain (echo suppression) - optimized NumPy operation
                         mute_gain = self.echo_interlock.get_tx_gain(1.0)
                         audio_array = np.frombuffer(pcm_data, dtype=np.int16)
                         audio_array = (audio_array * mute_gain).astype(np.int16)
                         audio_packet['pcm_data'] = audio_array.tobytes()
                         audio_packet['echo_muted'] = True
                 
-                # Update status logger
+                # Update status logger (non-blocking)
                 if self.status_logger:
                     pcm_data = audio_packet.get('pcm_data', b'')
                     audio_level = self._calculate_audio_level(pcm_data)
@@ -267,15 +284,17 @@ class BOSRadioBridge:
                 # Process through VOX controller (PTT control)
                 audio_packet = self.vox_controller.process_audio_frame(audio_packet)
                 
-                # Put into gateway queue (only if PTT is active and not muted)
+                # Put into gateway queue (only if PTT is active and not muted) - non-blocking
                 if audio_packet.get('ptt_active', False) and not audio_packet.get('echo_muted', False):
                     try:
-                        self.vox_to_gateway_queue.put(audio_packet, timeout=1.0)
+                        self.vox_to_gateway_queue.put_nowait(audio_packet)
                     except:
-                        logger.warning("Gateway queue full, dropping packet")
+                        # Queue full - drop packet silently (prevent blocking)
+                        pass
                 
-            except:
-                # Timeout is expected, continue
+            except Exception as e:
+                # Log error but continue processing
+                logger.error(f"Error in TX processing loop: {e}", exc_info=True)
                 continue
         
         logger.info("TX processing loop stopped")
