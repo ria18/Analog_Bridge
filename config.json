@@ -10,6 +10,17 @@
         "buffer_size": 4096
     },
     
+    "alsa": {
+        "device": "hw:2,1",
+        "sample_rate": 16000,
+        "channels": 1,
+        "dtype": "int16",
+        "blocksize": 320,
+        "queue_size": 10,
+        "buffer_size": 4096,
+        "use_alsa": true
+    },
+    
     "mmdvm": {
         "address": "127.0.0.1",
         "port": 33100,

@@ -29,6 +29,7 @@ from typing import Optional
 import numpy as np
 
 from usrp_server import USRPServer
+from alsa_audio_reader import AlsaAudioReader
 from audio_processor import AudioProcessor
 from vox_controller import VOXController
 from dmr_gateway import DMRGateway
@@ -73,9 +74,13 @@ class BOSRadioBridge:
         
         # TX Modules
         self.usrp_server: Optional[USRPServer] = None
+        self.alsa_audio_reader: Optional[AlsaAudioReader] = None
         self.audio_processor_tx: Optional[AudioProcessor] = None
         self.vox_controller: Optional[VOXController] = None
         self.dmr_gateway: Optional[DMRGateway] = None
+        
+        # Audio input mode (ALSA or USRP)
+        self.use_alsa = False
         
         # RX Modules
         self.mmdvm_receiver: Optional[MMDVMReceiver] = None
@@ -180,8 +185,20 @@ class BOSRadioBridge:
         
         logger.info("Initializing modules...")
         
+        # Determine audio input mode (ALSA or USRP)
+        alsa_config = self.config.get('alsa', {})
+        self.use_alsa = alsa_config.get('use_alsa', False)
+        
         # Initialize TX modules (Telefon -> Funk)
-        self.usrp_server = USRPServer(self.config, self.usrp_to_processor_queue)
+        if self.use_alsa:
+            # Use ALSA Loopback (hw:2,1) for BareSIP
+            logger.info("Using ALSA audio input (hw:2,1)")
+            self.alsa_audio_reader = AlsaAudioReader(self.config, self.usrp_to_processor_queue)
+        else:
+            # Use USRP UDP (port 40001) for network-based input
+            logger.info("Using USRP UDP input (port 40001)")
+            self.usrp_server = USRPServer(self.config, self.usrp_to_processor_queue)
+        
         self.audio_processor_tx = AudioProcessor(
             self.config,
             self.usrp_to_processor_queue,
@@ -350,7 +367,13 @@ class BOSRadioBridge:
             self.initialize_modules()
             
             # Start TX modules
-            self.usrp_server.start()
+            if self.use_alsa:
+                if self.alsa_audio_reader:
+                    self.alsa_audio_reader.start()
+            else:
+                if self.usrp_server:
+                    self.usrp_server.start()
+            
             self.dmr_gateway.start()
             
             # Start RX modules
@@ -414,12 +437,16 @@ class BOSRadioBridge:
             except Exception as e:
                 logger.error(f"Error forcing PTT OFF: {e}", exc_info=True)
             
-            # Stop modules (UDP sockets must be closed)
+            # Stop modules (UDP sockets/audio streams must be closed)
             try:
-                if self.usrp_server:
-                    self.usrp_server.stop()
+                if self.use_alsa:
+                    if self.alsa_audio_reader:
+                        self.alsa_audio_reader.stop()
+                else:
+                    if self.usrp_server:
+                        self.usrp_server.stop()
             except Exception as e:
-                logger.error(f"Error stopping USRP server: {e}", exc_info=True)
+                logger.error(f"Error stopping audio input: {e}", exc_info=True)
             
             try:
                 if self.dmr_gateway:
@@ -505,8 +532,12 @@ class BOSRadioBridge:
             'running': self.running
         }
         
-        if self.usrp_server:
-            stats['usrp_server'] = self.usrp_server.get_stats()
+        if self.use_alsa:
+            if self.alsa_audio_reader:
+                stats['alsa_audio_reader'] = self.alsa_audio_reader.get_stats()
+        else:
+            if self.usrp_server:
+                stats['usrp_server'] = self.usrp_server.get_stats()
         
         if self.audio_processor_tx:
             stats['audio_processor_tx'] = self.audio_processor_tx.get_stats()
