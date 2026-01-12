@@ -1,0 +1,11 @@
+# BOS-Radio-Bridge Python Dependencies
+# Python 3.8+
+
+# Core dependencies
+numpy>=1.20.0,<2.0.0
+
+# Optional dependencies (for future enhancements)
+# scipy>=1.7.0  # For advanced audio processing
+# pyaudio>=0.2.11  # For audio I/O (if needed)
+# soundfile>=0.10.0  # For audio file I/O (if needed)
+
