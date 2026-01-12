@@ -95,6 +95,10 @@ class BOSRadioBridge:
         self.jitter_buffer_thread: Optional[threading.Thread] = None
         self.stats_thread: Optional[threading.Thread] = None
         
+        # Thread safety - Initialize BEFORE signal handlers
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_complete = threading.Event()
+        
         # Load configuration
         self.load_config()
         
@@ -472,10 +476,24 @@ class BOSRadioBridge:
         """Handle shutdown signals with thread-safe cleanup."""
         logger.info(f"Received signal {signum}, initiating shutdown...")
         try:
+            # First: Send final PTT OFF command (critical for safety - prevent stuck transmission)
+            try:
+                if hasattr(self, 'dmr_gateway') and self.dmr_gateway:
+                    logger.info("Sending final PTT OFF command...")
+                    self.dmr_gateway.send_ptt_command(False)
+                    time.sleep(0.1)  # Small delay to ensure command is sent
+            except Exception as e:
+                logger.error(f"Error sending final PTT OFF: {e}", exc_info=True)
+            
+            # Second: Close all sockets and stop modules
             self.stop()
+            
             # Wait for shutdown to complete
-            if not self._shutdown_complete.wait(timeout=5.0):
-                logger.warning("Shutdown did not complete in time")
+            if hasattr(self, '_shutdown_complete') and self._shutdown_complete:
+                if not self._shutdown_complete.wait(timeout=5.0):
+                    logger.warning("Shutdown did not complete in time")
+        except KeyboardInterrupt:
+            logger.warning("KeyboardInterrupt during shutdown")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}", exc_info=True)
         finally:
