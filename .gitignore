@@ -1,0 +1,49 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.exe
+*.dSYM/
+
+# Binary files (original binaries from repository)
+Analog_Bridge/bin/*.amd64
+Analog_Bridge/bin/*.arm64
+Analog_Bridge/bin/*.armhf
+Analog_Bridge/bin/*.i386
+Analog_Bridge/bin/*.exe
+
+# Object files
+*.obj
+*.lo
+
+# Compiled files
+*.class
+
+# Logs
+*.log
+Analog_Bridge.log
+
+# Temporary files
+*~
+*.swp
+*.swo
+.cache/
+
+# IDE files
+.vscode/
+.idea/
+*.user
+*.suo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build directories
+build/
+dist/
+bin/
+
+# Configuration files with sensitive data (uncomment if needed)
+# *.ini
+
